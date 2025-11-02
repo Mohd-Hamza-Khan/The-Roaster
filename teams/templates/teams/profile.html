@@ -1,0 +1,91 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Profile | TheRoaster</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50 p-4 min-h-screen">
+    <div class="max-w-4xl mx-auto py-12">
+        <!-- Header -->
+        <header class="mb-10 flex justify-between items-center">
+            <h1 class="text-3xl font-bold text-gray-800">Your Account Profile</h1>
+            <a href="{% url 'teams:dashboard' %}" class="text-blue-600 hover:text-blue-700 font-medium transition duration-150 flex items-center">
+                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                Back to Dashboard
+            </a>
+        </header>
+
+        <!-- Profile Card -->
+        <div class="bg-white p-6 sm:p-8 rounded-xl shadow-lg border border-gray-100">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center border-b pb-6 mb-6">
+                <!-- Avatar/Icon (Placeholder) -->
+                <div class="flex-shrink-0 mr-6 mb-4 sm:mb-0">
+                    <div class="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                    </div>
+                </div>
+                
+                <!-- User Info -->
+                <div>
+                    <h2 class="text-3xl font-extrabold text-gray-900">{{ user.username }}</h2>
+                    <p class="text-lg text-gray-500">{{ user.email }}</p>
+                    {% if user.first_name and user.last_name %}
+                    <p class="text-sm text-gray-400 mt-1">Full Name: {{ user.first_name }} {{ user.last_name }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Details Grid -->
+            <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6">
+                <!-- Detail Item: Date Joined -->
+                <div class="py-2">
+                    <dt class="text-sm font-medium text-gray-500">Date Joined</dt>
+                    <dd class="mt-1 text-base text-gray-900">{{ user.date_joined|date:"M d, Y" }}</dd>
+                </div>
+
+                <!-- Detail Item: Last Login -->
+                <div class="py-2">
+                    <dt class="text-sm font-medium text-gray-500">Last Active</dt>
+                    <dd class="mt-1 text-base text-gray-900">{{ user.last_login|date:"M d, Y P" }}</dd>
+                </div>
+
+                <!-- Detail Item: Total Teams Managed (Placeholder data) -->
+                <div class="py-2">
+                    <dt class="text-sm font-medium text-gray-500">Teams Managed</dt>
+                    <!-- Assuming you have 'managed_teams' set as a related_name on the Team model -->
+                    <dd class="mt-1 text-base text-gray-900 font-semibold">{{ user.managed_teams.count }}</dd>
+                </div>
+
+                <!-- Detail Item: Account Status -->
+                <div class="py-2">
+                    <dt class="text-sm font-medium text-gray-500">Account Status</dt>
+                    <dd class="mt-1 text-base text-gray-900">
+                        {% if user.is_active %}
+                            <span class="inline-flex items-center px-3 py-0.5 rounded-full text-sm font-medium bg-green-100 text-green-800">Active</span>
+                        {% else %}
+                            <span class="inline-flex items-center px-3 py-0.5 rounded-full text-sm font-medium bg-red-100 text-red-800">Inactive</span>
+                        {% endif %}
+                    </dd>
+                </div>
+            </dl>
+
+            <!-- Action Button: Logout -->
+            <form method="post" action="{% url 'teams:logout' %}">
+                {% csrf_token %}
+                <button type="submit" 
+                        class="w-full sm:w-auto inline-flex items-center justify-center px-6 py-2 border border-transparent text-sm font-medium rounded-lg shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition duration-150">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                    Log Out
+                </button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
