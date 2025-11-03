@@ -27,12 +27,13 @@ class AvailabilitySerializer(serializers.ModelSerializer):
 class MatchRequestSerializer(serializers.ModelSerializer):
     requester_name = serializers.CharField(source='requester.name', read_only=True)
     receiver_name = serializers.CharField(source='receiver.name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
 
     class Meta:
         model = MatchRequest
         fields = ['id', 'requester', 'requester_name', 'receiver', 'receiver_name', 
-                  'status', 'match_time', 'location', 'created_at', 'updated_at']
-        read_only_fields = ['requester', 'status', 'created_at', 'updated_at']
+                  'status', 'status_display', 'match_time', 'location', 'created_at', 'updated_at']
+        read_only_fields = ['requester', 'created_at', 'updated_at']
 
 class ChatMessageSerializer(serializers.ModelSerializer):
     sender_username = serializers.CharField(source='sender.username', read_only=True)
@@ -41,3 +42,23 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         model = ChatMessage
         fields = ['id', 'match_request', 'sender', 'sender_username', 'timestamp', 'content']
         read_only_fields = ['sender', 'match_request']
+
+class MatchingAvailabilitySerializer(serializers.ModelSerializer):
+    """
+    A simple serializer for just the start and end time of an availability slot.
+    Used within the MatchingTeamSerializer.
+    """
+    class Meta:
+        model = Availability
+        fields = ['start_time', 'end_time']
+
+class MatchingTeamSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the MatchingAPIView. It includes nested availability
+    slots, which are filtered by the view context.
+    """
+    availabilities = MatchingAvailabilitySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Team
+        fields = ['id', 'name', 'location', 'skill_level', 'availabilities']

@@ -1,28 +1,3 @@
-# from django.urls import path, include
-# from rest_framework.routers import DefaultRouter
-# from .views import MatchRequestViewSet, MatchingAPIView, ChatMessageViewSet
-
-# # Create a router and register our ViewSets with it.
-# router = DefaultRouter()
-# router.register(r'match-requests', MatchRequestViewSet, basename='matchrequest')
-
-# # Nested router for chat messages (e.g., /api/match-requests/1/chat/)
-# nested_router = DefaultRouter()
-# nested_router.register(r'chat', ChatMessageViewSet, basename='chatmessage')
-
-
-# urlpatterns = [
-#     # Core Model APIs
-#     path('', include(router.urls)),
-    
-#     # Custom Matching API
-#     path('matchmaking/', MatchingAPIView.as_view(), name='matchmaking'),
-    
-#     # Nested Chat API (e.g. /api/match-requests/{pk}/chat/)
-#     path('match-requests/<int:match_request_pk>/', include(nested_router.urls)),
-# ]
-
-
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
@@ -39,6 +14,8 @@ router = DefaultRouter()
 router.register(r'match-requests', MatchRequestViewSet, basename='matchrequest')
 router.register(r'messages', ChatMessageViewSet, basename='chatmessage')
 router.register(r'availability', AvailabilityViewSet, basename='availability')
+
+app_name = 'api'
 
 
 # Specific endpoints and router generated URLs

@@ -21,6 +21,7 @@ from .serializers import (
     AvailabilitySerializer,
     MatchRequestSerializer,
     ChatMessageSerializer,
+    MatchingTeamSerializer,
 )
 
 
@@ -156,8 +157,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 Q(requester__in=user_teams) | Q(receiver__in=user_teams) # CORRECTED: using 'receiver'
             ).order_by('-created_at')
             
-            context['active_requests'] = match_requests.filter(status__in=['P', 'A', 'C']) 
-            context['history_requests'] = match_requests.exclude(status__in=['P', 'A', 'C'])
+            context['pending_requests'] = match_requests.filter(status='P')
+            context['active_requests'] = match_requests.filter(status__in=['A', 'C'])
+            context['history_requests'] = match_requests.filter(status__in=['R'])
 
         return context
 
@@ -252,7 +254,38 @@ class MatchFinderView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['day_choices'] = Availability.DAY_CHOICES
+        
+        # Get the day parameter from the request
+        day = self.request.GET.get('day')
+        
+        # Get the current user's managed teams
+        user_teams = self.request.user.managed_teams.all()
+        
+        # Initialize available teams queryset
+        available_teams = Team.objects.none()
+        
+        if day:
+            # Get teams that have availability on the selected day
+            # excluding the user's own teams
+            available_teams = Team.objects.filter(
+                availabilities__day_of_week=day
+            ).exclude(
+                id__in=user_teams.values_list('id', flat=True)
+            ).prefetch_related(
+                Prefetch(
+                    'availabilities',
+                    queryset=Availability.objects.filter(day_of_week=day).order_by('start_time'),
+                    to_attr='day_availabilities'
+                )
+            ).distinct()
+
+        context.update({
+            'day_choices': Availability.DAY_CHOICES,
+            'available_teams': available_teams,
+            'selected_day': day,
+            'user_teams': user_teams
+        })
+        
         return context
 
 class MatchRequestDetailView(LoginRequiredMixin, TemplateView):
@@ -286,8 +319,8 @@ class MatchRequestDetailView(LoginRequiredMixin, TemplateView):
         context['other_team_name'] = match_request.receiver.name if is_requester_manager else match_request.requester.name
 
         # JS endpoints used by match_request_detail.html — adjust if your API routes differ
-        context['chat_api_url'] = f"/api/matchrequests/{match_request.pk}/messages/"
-        context['request_api_url'] = f"/api/matchrequests/{match_request.pk}/"
+        context['chat_api_url'] = reverse('api:chatmessage-list') + f'?match_request_pk={match_request.pk}'
+        context['request_api_url'] = reverse('api:matchrequest-detail', kwargs={'pk': match_request.pk})
 
         return context
 
@@ -298,17 +331,19 @@ class MatchingAPIView(APIView):
 
     def get(self, request):
         day_param = request.GET.get('day')
-        if not day_param:
-            return Response({"detail": "Day parameter is required"}, status=400)
+        user_team = request.user.managed_teams.first()
 
-        # Get teams excluding user's own teams
-        managed_team_ids = set(request.user.managed_teams.values_list('pk', flat=True))
-        
-        # Get teams with availability on the specified day
+        if not day_param:
+            return Response({"detail": "A 'day' query parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not user_team:
+            return Response({"detail": "You must manage a team to find matches."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Find teams available on the selected day, excluding the user's own team.
+        # We also prefetch the availabilities for that specific day to optimize queries.
         available_teams = Team.objects.filter(
             availabilities__day_of_week=day_param
         ).exclude(
-            pk__in=managed_team_ids
+            id=user_team.id
         ).prefetch_related(
             Prefetch(
                 'availabilities',
@@ -316,25 +351,9 @@ class MatchingAPIView(APIView):
             )
         ).distinct()
 
-        # Serialize the data
-        data = [
-            {
-                'id': team.id,
-                'name': team.name,
-                'location': team.location or 'No location specified',
-                'skill_level': team.get_skill_level_display(),
-                'availabilities': [
-                    {
-                        'start_time': av.start_time.strftime('%H:%M'),
-                        'end_time': av.end_time.strftime('%H:%M')
-                    }
-                    for av in team.availabilities.all()
-                ]
-            }
-            for team in available_teams
-        ]
-
-        return Response(data)
+        # Serialize the data. The serializer will handle the nested structure.
+        serializer = MatchingTeamSerializer(available_teams, many=True)
+        return Response(serializer.data)
 
 class AvailabilityViewSet(viewsets.ModelViewSet):
     """
@@ -383,10 +402,7 @@ class ChatMessageViewSet(viewsets.ModelViewSet):
         match_request = get_object_or_404(MatchRequest, pk=match_request_pk)
         
         user_team = Team.objects.filter(manager=self.request.user).first()
-        
-        if match_request.requester != user_team and match_request.responder != user_team:
-            raise PermissionDenied("You must be a participant in the match to chat.")
-            
+
         serializer.save(match_request=match_request, sender=self.request.user, sender_team=user_team)
 
     def update(self, request, *args, **kwargs):
@@ -407,7 +423,7 @@ class MatchRequestViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user_teams_pk = self.request.user.managed_teams.values_list('pk', flat=True)
         return MatchRequest.objects.filter(
-            Q(requester_id__in=user_teams_pk) | Q(responder_id__in=user_teams_pk)
+            Q(requester_id__in=user_teams_pk) | Q(receiver_id__in=user_teams_pk)
         ).order_by('-created_at')
 
     def perform_create(self, serializer):
@@ -423,7 +439,7 @@ class MatchRequestViewSet(viewsets.ModelViewSet):
         match_request = self.get_object()
         user_team = Team.objects.filter(manager=request.user).first()
         
-        if match_request.responder != user_team:
+        if match_request.receiver != user_team:
             return Response(
                 {"detail": "Only the receiving team can accept this request."},
                 status=status.HTTP_403_FORBIDDEN
@@ -446,7 +462,7 @@ class MatchRequestViewSet(viewsets.ModelViewSet):
         match_request = self.get_object()
         user_team = Team.objects.filter(manager=request.user).first()
 
-        if match_request.responder != user_team:
+        if match_request.receiver != user_team:
             return Response(
                 {"detail": "Only the receiving team can reject this request."},
                 status=status.HTTP_403_FORBIDDEN

@@ -87,14 +87,14 @@ class Availability(models.Model):
 class MatchRequest(models.Model):
     """Represents a request for a match between two teams."""
     STATUS_CHOICES = [
-        ('PENDING', 'Pending'),
-        ('ACCEPTED', 'Accepted'),
-        ('REJECTED', 'Rejected'),
-        ('CANCELLED', 'Cancelled'),
+        ('P', 'Pending'),
+        ('A', 'Accepted'),
+        ('R', 'Rejected'),
+        ('C', 'Cancelled'),
     ]
     requester = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='outgoing_requests')
     receiver = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='incoming_requests')
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
+    status = models.CharField(max_length=1, choices=STATUS_CHOICES, default='P')
     
     # Proposed Match Details
     match_time = models.DateTimeField(verbose_name="Proposed Match Time")
@@ -138,13 +138,20 @@ class MatchRequest(models.Model):
         return None
 
     def is_pending(self):
-        return self.status == 'PENDING'
+        return self.status == 'P'
 
     def is_accepted(self):
-        return self.status == 'ACCEPTED'
+        return self.status == 'A'
 
     def is_rejected(self):
-        return self.status == 'REJECTED'
+        return self.status == 'R'
+
+    def is_requester(self, user):
+        """
+        Checks if the given user is the manager of the team that sent the request.
+        Returns False if user is not authenticated.
+        """
+        return user.is_authenticated and self.requester.manager == user
 
 class ChatMessage(models.Model):
     """Represents a message within the context of a MatchRequest."""
@@ -152,6 +159,7 @@ class ChatMessage(models.Model):
     sender = models.ForeignKey(User, on_delete=models.CASCADE)
     timestamp = models.DateTimeField(auto_now_add=True)
     content = models.TextField()
+    sender_team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='sent_messages', null=True)
 
     class Meta:
         ordering = ['timestamp']
