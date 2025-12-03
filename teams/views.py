@@ -19,7 +19,7 @@ from .models import Team, Availability, MatchRequest, ChatMessage
 from .serializers import (
     TeamSerializer,
     AvailabilitySerializer,
-    MatchRequestSerializer,
+    # MatchRequestSerializer,
     ChatMessageSerializer,
     MatchingTeamSerializer,
 )
@@ -56,48 +56,22 @@ class IsMatchParticipantPermission(IsAuthenticated):
         return is_manager_of_requester or is_manager_of_receiver
 
 # --- Helper Logic for Matchmaking ---
+# create a fuction which accept and reject match request named as match_request_detail
+class MatchRequestDetailView(LoginRequiredMixin, TemplateView):
+    template_name = 'teams/match_request_detail.html'
 
-def find_available_teams(requesting_team):
-    """
-    Find teams with the same skill_level, different manager, and overlapping availability.
-    Accepts a Team instance or a team PK. Returns a Team QuerySet.
-    """
-    # allow passing pk or instance
-    if isinstance(requesting_team, int):
-        requesting_team = Team.objects.filter(pk=requesting_team).first()
-        if requesting_team is None:
-            return Team.objects.none()
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        match_request = get_object_or_404(MatchRequest, pk=self.kwargs['pk'])
+        
+        # Authorization check: must be a manager of one of the participating teams
+        if not (match_request.requester.manager == self.request.user or match_request.receiver.manager == self.request.user):
+            raise PermissionDenied("You do not have permission to view this match request.")
+        
+        context['match_request'] = match_request
+        context['chat_messages'] = ChatMessage.objects.filter(match_request=match_request).order_by('timestamp')
+        return context
 
-    # 1) candidate teams: same skill, different manager, not the same team
-    candidates = Team.objects.exclude(pk=requesting_team.pk).filter(
-        skill_level=requesting_team.skill_level
-    ).exclude(manager=requesting_team.manager)
-
-    if not candidates.exists():
-        return Team.objects.none()
-
-    # 2) requester availabilities
-    requester_avails = list(requesting_team.availabilities.all())
-    if not requester_avails:
-        return Team.objects.none()
-
-    # 3) collect team ids that have any overlapping availability
-    available_team_ids = set()
-    for r in requester_avails:
-        overlapping = Availability.objects.filter(
-            team__in=candidates,
-            day_of_week=r.day_of_week,
-            start_time__lt=r.end_time,   # A_start < B_end
-            end_time__gt=r.start_time    # A_end > B_start
-        ).values_list('team_id', flat=True)
-        available_team_ids.update(overlapping)
-
-    if not available_team_ids:
-        return Team.objects.none()
-
-    # return final queryset (distinct, ordered)
-    return Team.objects.filter(pk__in=available_team_ids).distinct().order_by('name')
-# --- 1. Template Views (Django Class-Based Views) ---
 
 # NEW: Authentication Views
 class RegisterView(CreateView):
@@ -119,7 +93,7 @@ class CustomLogoutView(LogoutView):
     Custom LogoutView to define the next page after logout.
     Fixes the HTTP 405 error by handling GET requests as POST requests.
     """
-    next_page = reverse_lazy('teams:login')
+    next_page = reverse_lazy('teams:home')
     
     # This override forces the logout to be processed when a GET request hits the URL.
     def get(self, request, *args, **kwargs):
@@ -132,9 +106,18 @@ class ProfileView(LoginRequiredMixin, TemplateView):
     template_name = 'teams/profile.html'
     # No extra context needed, as Django automatically provides 'user
 
+class HomeView(TemplateView):
+    """The main landing page for the application."""
+    template_name = 'teams/home.html'
+    # No extra context needed, as Django automatically provides 'user
+
 class DashboardView(LoginRequiredMixin, TemplateView):
     """User dashboard showing managed teams and match requests."""
     template_name = 'teams/dashboard.html'
+
+    # Redirect unauthenticated users to the login page
+    login_url = '/teams/login/'  # or use reverse_lazy('login') if named URL
+    redirect_field_name = 'next'  # optional, Django uses this by default
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -149,24 +132,34 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context['user_teams'] = user_teams
         
         if user_teams.exists():
-            current_team = user_teams.first() 
+            # --- 2. Use first team as 'current' team (if multiple) ---
+            current_team = user_teams.first()
             context['current_team'] = current_team
-            
-            # Match requests where the user's team is the requester or receiver
-            match_requests = MatchRequest.objects.filter(
-                Q(requester__in=user_teams) | Q(receiver__in=user_teams) # CORRECTED: using 'receiver'
-            ).order_by('-created_at')
-            
-            context['pending_requests'] = match_requests.filter(status='P')
-            context['active_requests'] = match_requests.filter(status__in=['A', 'C'])
-            context['history_requests'] = match_requests.filter(status__in=['R'])
 
-        return context
+            # --- 3. Filter match requests for the team(s) ---
+            match_requests = MatchRequest.objects.filter(
+                Q(requester__in=user_teams) | Q(receiver__in=user_teams)
+            ).select_related('requester', 'receiver').order_by('-created_at')
+
+            # --- 4. Split pending into incoming/outgoing ---
+            outgoing_pending = match_requests.filter(requester=current_team, status__in=['P', 'A', 'R', 'C'])
+            incoming_pending = match_requests.filter(receiver=current_team,  status__in=['P', 'A', 'R', 'C'])
+
+            # --- 5. Add all categorized data to context ---
+            context.update({
+                'outgoing_pending': outgoing_pending,
+                'incoming_pending': incoming_pending,
+                'pending_count': outgoing_pending.count() + incoming_pending.count(),
+                'active_requests': match_requests.filter(status__in=['A', 'C']),
+                'history_requests': match_requests.filter(status='R'),
+            })
+
+            return context
 
 class TeamCreateView(LoginRequiredMixin, SuccessMessageMixin, CreateView):
     """View to create a new team."""
     model = Team
-    fields = ['name', 'skill_level', 'location']
+    fields = ['name', 'location']
     template_name = 'teams/team_form.html'
     success_message = "Team '%(name)s' was created successfully!"
 
@@ -183,7 +176,7 @@ class TeamUpdateView(LoginRequiredMixin, IsTeamManagerMixin, SuccessMessageMixin
     model = Team
     # NOTE: Assuming 'description' is a field on your Team model. 
     # If not, remove it. Fields here should match your model.
-    fields = ['name', 'skill_level', 'location'] 
+    fields = ['name','location'] 
     template_name = 'teams/team_form.html'
     success_message = "Team '%(name)s' was updated successfully!"
 
@@ -288,42 +281,6 @@ class MatchFinderView(LoginRequiredMixin, TemplateView):
         
         return context
 
-class MatchRequestDetailView(LoginRequiredMixin, TemplateView):
-    """Template view to show match request status and integrated chat."""
-    template_name = 'teams/match_request_detail.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        match_request = get_object_or_404(MatchRequest, pk=self.kwargs['pk'])
-        user_teams = Team.objects.filter(manager=self.request.user)
-
-        # Ensure the user manages one of the participant teams (requester or receiver)
-        is_participant = user_teams.filter(
-            Q(pk=match_request.requester.pk) | Q(pk=match_request.receiver.pk)
-        ).exists()
-
-        if not is_participant:
-            raise PermissionDenied("You are not a participant in this match request.")
-
-        context['match_request'] = match_request
-
-        # Role booleans for the template
-        is_requester_manager = (match_request.requester.manager == self.request.user)
-        is_receiver_manager = (match_request.receiver.manager == self.request.user)
-
-        context['is_requester'] = is_requester_manager
-        context['is_receiver'] = is_receiver_manager
-
-        # current_team = the team managed by the current user; other_team_name for display
-        context['current_team'] = match_request.requester if is_requester_manager else match_request.receiver
-        context['other_team_name'] = match_request.receiver.name if is_requester_manager else match_request.requester.name
-
-        # JS endpoints used by match_request_detail.html — adjust if your API routes differ
-        context['chat_api_url'] = reverse('api:chatmessage-list') + f'?match_request_pk={match_request.pk}'
-        context['request_api_url'] = reverse('api:matchrequest-detail', kwargs={'pk': match_request.pk})
-
-        return context
-
 # --- 2. API Views (Django REST Framework) ---
 
 class MatchingAPIView(APIView):
@@ -373,7 +330,6 @@ class AvailabilityViewSet(viewsets.ModelViewSet):
         team = get_object_or_404(Team, pk=team_id, manager=self.request.user)
         serializer.save(team=team)
 
-
 class ChatMessageViewSet(viewsets.ModelViewSet):
     """
     API for creating and viewing chat messages within a match request.
@@ -410,72 +366,3 @@ class ChatMessageViewSet(viewsets.ModelViewSet):
         
     def destroy(self, request, *args, **kwargs):
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
-
-
-class MatchRequestViewSet(viewsets.ModelViewSet):
-    """
-    API for creating, viewing, and managing Match Requests.
-    Includes custom actions for accepting and rejecting requests.
-    """
-    serializer_class = MatchRequestSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        user_teams_pk = self.request.user.managed_teams.values_list('pk', flat=True)
-        return MatchRequest.objects.filter(
-            Q(requester_id__in=user_teams_pk) | Q(receiver_id__in=user_teams_pk)
-        ).order_by('-created_at')
-
-    def perform_create(self, serializer):
-        # Set the requester team automatically
-        requester_team = Team.objects.filter(manager=self.request.user).first()
-        if not requester_team:
-            raise serializers.ValidationError("User must manage a team to send a match request.")
-        
-        serializer.save(requester=requester_team, status='P') # Status is pending by default
-
-    @action(detail=True, methods=['post'])
-    def accept(self, request, pk=None):
-        match_request = self.get_object()
-        user_team = Team.objects.filter(manager=request.user).first()
-        
-        if match_request.receiver != user_team:
-            return Response(
-                {"detail": "Only the receiving team can accept this request."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-            
-        if match_request.status != 'P':
-            return Response(
-                {"detail": "Match request is not pending."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
-        match_request.status = 'A' # Accepted
-        match_request.save()
-        
-        serializer = self.get_serializer(match_request)
-        return Response(serializer.data)
-
-    @action(detail=True, methods=['post'])
-    def reject(self, request, pk=None):
-        match_request = self.get_object()
-        user_team = Team.objects.filter(manager=request.user).first()
-
-        if match_request.receiver != user_team:
-            return Response(
-                {"detail": "Only the receiving team can reject this request."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        if match_request.status != 'P':
-            return Response(
-                {"detail": "Match request is not pending."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        match_request.status = 'R' # Rejected
-        match_request.save()
-        
-        serializer = self.get_serializer(match_request)
-        return Response(serializer.data)

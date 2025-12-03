@@ -6,8 +6,8 @@ from .models import Team, Availability, MatchRequest, ChatMessage
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
     """Admin configuration for the Team model."""
-    list_display = ('name', 'manager', 'skill_level', 'location')
-    list_filter = ('skill_level', 'location', 'manager')
+    list_display = ('name', 'manager', 'location')
+    list_filter = ('location', 'manager')
     search_fields = ('name', 'manager__username', 'location')
     ordering = ('name',)
 

@@ -13,7 +13,7 @@ class TeamSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Team
-        fields = ['id', 'name', 'skill_level', 'location', 'manager', 'manager_username']
+        fields = ['id', 'name', 'location', 'manager', 'manager_username']
         read_only_fields = ['manager']
 
 class AvailabilitySerializer(serializers.ModelSerializer):
@@ -61,4 +61,4 @@ class MatchingTeamSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Team
-        fields = ['id', 'name', 'location', 'skill_level', 'availabilities']
+        fields = ['id', 'name', 'location', 'availabilities']

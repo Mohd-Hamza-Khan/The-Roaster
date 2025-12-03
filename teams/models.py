@@ -3,23 +3,12 @@ from django.contrib.auth.models import User
 
 class Team(models.Model):
     """Represents a competitive team."""
-    SKILL_CHOICES = [
-        ('1', 'Beginner (1)'),
-        ('2', 'Intermediate (2)'),
-        ('3', 'Advanced (3)'),
-        ('4', 'Expert (4)'),
-    ]
     name = models.CharField(max_length=100, unique=True)
     manager = models.ForeignKey(User, on_delete=models.CASCADE, related_name='managed_teams')
-    skill_level = models.CharField(max_length=1, choices=SKILL_CHOICES, default='2')
     location = models.CharField(max_length=255, blank=True)
 
     def __str__(self):
         return self.name
-
-    def get_skill_level_display(self):
-        """Returns formatted skill level display text."""
-        return dict(self.SKILL_CHOICES).get(self.skill_level, self.skill_level)
 
     def get_available_slots(self, day_code=None):
         """
@@ -42,7 +31,6 @@ class Team(models.Model):
             'id': self.pk,
             'name': self.name,
             'location': self.location,
-            'skill_level': self.get_skill_level_display(),
             'availabilities': [
                 {
                     'day_of_week': av.day_of_week,

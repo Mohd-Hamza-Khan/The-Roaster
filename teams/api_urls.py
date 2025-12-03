@@ -2,7 +2,6 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     MatchingAPIView, 
-    MatchRequestViewSet, 
     ChatMessageViewSet, 
     AvailabilityViewSet
 )
@@ -11,7 +10,6 @@ from .views import (
 router = DefaultRouter()
 # Note: basename is needed since we aren't using queryset in the ChatMessageViewSet 
 # or AvailabilityViewSet due to being nested/custom logic (though MatchRequest uses it)
-router.register(r'match-requests', MatchRequestViewSet, basename='matchrequest')
 router.register(r'messages', ChatMessageViewSet, basename='chatmessage')
 router.register(r'availability', AvailabilityViewSet, basename='availability')
 
